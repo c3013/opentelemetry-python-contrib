@@ -312,7 +312,7 @@ def messages_to_json(messages, capture_content):
 
         result.append(msg_dict)
 
-    return json.dumps(result)
+    return json.dumps(result, ensure_ascii=False)
 
 
 def tools_to_json(tools):
@@ -343,7 +343,7 @@ def tools_to_json(tools):
 
         result.append(tool_dict)
 
-    return json.dumps(result)
+    return json.dumps(result, ensure_ascii=False)
 
 
 def handle_span_exception(span, error):

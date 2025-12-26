@@ -449,7 +449,7 @@ def _set_response_attributes(
             set_span_attribute(
                 span,
                 GEN_AI_OUTPUT_MESSAGES,
-                json.dumps(output_messages),
+                json.dumps(output_messages, ensure_ascii=False),
             )
 
         set_span_attribute(
@@ -678,7 +678,7 @@ class StreamWrapper:
                 set_span_attribute(
                     self.span,
                     GEN_AI_OUTPUT_MESSAGES,
-                    json.dumps(output_messages),
+                    json.dumps(output_messages, ensure_ascii=False),
                 )
 
             # Record timing metrics for streaming

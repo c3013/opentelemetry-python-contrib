@@ -12,6 +12,8 @@ A JSON-encoded array of input messages sent to the LLM. Each message includes:
 - `tool_calls`: Array of tool calls (for assistant messages with tool calls)
 - `tool_call_id`: The tool call ID (for tool role messages)
 
+**Note:** The JSON encoding uses `ensure_ascii=False`, so Unicode characters (including Chinese, Japanese, emoji, etc.) are preserved as-is rather than being escaped.
+
 **Example:**
 ```json
 [
@@ -26,12 +28,28 @@ A JSON-encoded array of input messages sent to the LLM. Each message includes:
 ]
 ```
 
+**Example with Chinese:**
+```json
+[
+  {
+    "role": "user",
+    "content": "你好，请问天气如何？"
+  },
+  {
+    "role": "assistant",
+    "content": "今天天气很好，阳光明媚。"
+  }
+]
+```
+
 ### gen_ai.output.messages
 
 A JSON-encoded array of output messages received from the LLM. Each message includes:
 - `role`: Always "assistant"
 - `content`: The generated text content (only included when `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`)
 - `tool_calls`: Array of tool calls if the assistant is calling tools
+
+**Note:** The JSON encoding uses `ensure_ascii=False`, so Unicode characters are preserved as-is.
 
 **Example:**
 ```json
@@ -61,7 +79,7 @@ A JSON-encoded array of tool definitions available to the LLM. Each tool include
   - `name`: The function name
   - `description`: The function description
 
-Note: The `parameters` field is intentionally omitted from the trace to avoid excessively large span attributes.
+**Note:** The JSON encoding uses `ensure_ascii=False`, so Unicode characters are preserved as-is. The `parameters` field is intentionally omitted from the trace to avoid excessively large span attributes.
 
 **Example:**
 ```json

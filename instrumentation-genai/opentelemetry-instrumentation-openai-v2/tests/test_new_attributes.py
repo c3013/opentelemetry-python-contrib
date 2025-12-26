@@ -144,3 +144,49 @@ def test_tools_to_json_none():
     """Test tools_to_json with None"""
     result = tools_to_json(None)
     assert result is None
+
+
+def test_messages_to_json_with_chinese_content():
+    """Test messages_to_json with Chinese characters"""
+    messages = [
+        {"role": "user", "content": "你好，请问天气如何？"},
+        {"role": "assistant", "content": "今天天气很好，阳光明媚。"},
+    ]
+    
+    result = messages_to_json(messages, capture_content=True)
+    parsed = json.loads(result)
+    
+    # Verify Chinese characters are preserved (not escaped)
+    assert len(parsed) == 2
+    assert parsed[0]["role"] == "user"
+    assert parsed[0]["content"] == "你好，请问天气如何？"
+    assert parsed[1]["role"] == "assistant"
+    assert parsed[1]["content"] == "今天天气很好，阳光明媚。"
+    # Verify the JSON string contains actual Chinese characters, not escaped Unicode
+    assert "你好" in result
+    assert "\\u" not in result  # Should not have Unicode escapes
+
+
+def test_tools_to_json_with_chinese_description():
+    """Test tools_to_json with Chinese characters in description"""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "获取指定地点的当前天气",
+            },
+        }
+    ]
+    
+    result = tools_to_json(tools)
+    parsed = json.loads(result)
+    
+    # Verify Chinese characters are preserved
+    assert len(parsed) == 1
+    assert parsed[0]["type"] == "function"
+    assert parsed[0]["function"]["name"] == "get_weather"
+    assert parsed[0]["function"]["description"] == "获取指定地点的当前天气"
+    # Verify the JSON string contains actual Chinese characters
+    assert "获取" in result
+    assert "\\u" not in result  # Should not have Unicode escapes
