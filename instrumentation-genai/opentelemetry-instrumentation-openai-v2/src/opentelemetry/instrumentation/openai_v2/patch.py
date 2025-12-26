@@ -36,7 +36,20 @@ from .utils import (
     handle_span_exception,
     is_streaming,
     message_to_event,
+    messages_to_json,
     set_span_attribute,
+    tools_to_json,
+)
+
+# Define attribute names for input/output messages and tools
+GEN_AI_INPUT_MESSAGES = getattr(
+    GenAIAttributes, "GEN_AI_INPUT_MESSAGES", "gen_ai.input.messages"
+)
+GEN_AI_OUTPUT_MESSAGES = getattr(
+    GenAIAttributes, "GEN_AI_OUTPUT_MESSAGES", "gen_ai.output.messages"
+)
+GEN_AI_INPUT_TOOLS = getattr(
+    GenAIAttributes, "GEN_AI_INPUT_TOOLS", "gen_ai.input.tools"
 )
 
 
@@ -58,7 +71,20 @@ def chat_completions_create(
             attributes=span_attributes,
             end_on_exit=False,
         ) as span:
-            for message in kwargs.get("messages", []):
+            # Add input messages attribute
+            messages = kwargs.get("messages", [])
+            if messages and span.is_recording():
+                input_messages_json = messages_to_json(messages, capture_content)
+                set_span_attribute(span, GEN_AI_INPUT_MESSAGES, input_messages_json)
+
+            # Add tools attribute
+            tools = kwargs.get("tools", [])
+            if tools and span.is_recording():
+                tools_json = tools_to_json(tools)
+                if tools_json:
+                    set_span_attribute(span, GEN_AI_INPUT_TOOLS, tools_json)
+
+            for message in messages:
                 logger.emit(message_to_event(message, capture_content))
 
             start = default_timer()
@@ -73,7 +99,7 @@ def chat_completions_create(
                     parsed_result = result
                 if is_streaming(kwargs):
                     return StreamWrapper(
-                        parsed_result, span, logger, capture_content
+                        parsed_result, span, logger, capture_content, instruments, span_attributes, start
                     )
 
                 if span.is_recording():
@@ -122,7 +148,20 @@ def async_chat_completions_create(
             attributes=span_attributes,
             end_on_exit=False,
         ) as span:
-            for message in kwargs.get("messages", []):
+            # Add input messages attribute
+            messages = kwargs.get("messages", [])
+            if messages and span.is_recording():
+                input_messages_json = messages_to_json(messages, capture_content)
+                set_span_attribute(span, GEN_AI_INPUT_MESSAGES, input_messages_json)
+
+            # Add tools attribute
+            tools = kwargs.get("tools", [])
+            if tools and span.is_recording():
+                tools_json = tools_to_json(tools)
+                if tools_json:
+                    set_span_attribute(span, GEN_AI_INPUT_TOOLS, tools_json)
+
+            for message in messages:
                 logger.emit(message_to_event(message, capture_content))
 
             start = default_timer()
@@ -137,7 +176,7 @@ def async_chat_completions_create(
                     parsed_result = result
                 if is_streaming(kwargs):
                     return StreamWrapper(
-                        parsed_result, span, logger, capture_content
+                        parsed_result, span, logger, capture_content, instruments, span_attributes, start
                     )
 
                 if span.is_recording():
@@ -346,6 +385,15 @@ def _record_metrics(
             attributes=input_attributes,
         )
 
+        # Record cached tokens if available
+        if hasattr(result.usage, "prompt_tokens_details") and result.usage.prompt_tokens_details:
+            cached_tokens = getattr(result.usage.prompt_tokens_details, "cached_tokens", None)
+            if cached_tokens is not None:
+                instruments.cached_tokens_histogram.record(
+                    cached_tokens,
+                    attributes=common_attributes,
+                )
+
         # For embeddings, don't record output tokens as all tokens are input tokens
         if (
             operation_name
@@ -370,8 +418,39 @@ def _set_response_attributes(
 
     if getattr(result, "choices", None):
         finish_reasons = []
+        output_messages = []
+        
         for choice in result.choices:
             finish_reasons.append(choice.finish_reason or "error")
+            
+            # Build output message for this choice
+            if choice.message:
+                message_dict = {"role": "assistant"}
+                if capture_content and getattr(choice.message, "content", None):
+                    message_dict["content"] = choice.message.content
+                
+                # Handle tool calls in the output message
+                if getattr(choice.message, "tool_calls", None):
+                    tool_calls = []
+                    for tool_call in choice.message.tool_calls:
+                        tc_dict = {"id": tool_call.id, "type": "function"}
+                        func_dict = {"name": tool_call.function.name}
+                        if capture_content and tool_call.function.arguments:
+                            func_dict["arguments"] = tool_call.function.arguments.replace("\n", "")
+                        tc_dict["function"] = func_dict
+                        tool_calls.append(tc_dict)
+                    message_dict["tool_calls"] = tool_calls
+                
+                output_messages.append(message_dict)
+        
+        # Set output messages attribute
+        if output_messages:
+            import json
+            set_span_attribute(
+                span,
+                GEN_AI_OUTPUT_MESSAGES,
+                json.dumps(output_messages),
+            )
 
         set_span_attribute(
             span,
@@ -484,12 +563,24 @@ class StreamWrapper:
         span: Span,
         logger: Logger,
         capture_content: bool,
+        instruments: Instruments,
+        span_attributes: dict,
+        start_time: float,
     ):
         self.stream = stream
         self.span = span
         self.choice_buffers = []
         self._span_started = False
         self.capture_content = capture_content
+        self.instruments = instruments
+        self.span_attributes = span_attributes
+        self.start_time = start_time
+        
+        # Timing metrics for streaming
+        self.first_token_time = None
+        self.last_token_time = None
+        self.token_times = []
+        self.token_count = 0
 
         self.logger = logger
         self.setup()
@@ -538,6 +629,8 @@ class StreamWrapper:
                     self.finish_reasons,
                 )
 
+            # Build and set output messages
+            output_messages = []
             for idx, choice in enumerate(self.choice_buffers):
                 message = {"role": "assistant"}
                 if self.capture_content and choice.text_content:
@@ -558,6 +651,8 @@ class StreamWrapper:
                         tool_calls.append(tool_call_dict)
                     message["tool_calls"] = tool_calls
 
+                output_messages.append(message)
+
                 body = {
                     "index": idx,
                     "finish_reason": choice.finish_reason or "error",
@@ -576,6 +671,57 @@ class StreamWrapper:
                         context=context,
                     )
                 )
+
+            # Set output messages attribute
+            if output_messages and self.span.is_recording():
+                import json
+                set_span_attribute(
+                    self.span,
+                    GEN_AI_OUTPUT_MESSAGES,
+                    json.dumps(output_messages),
+                )
+
+            # Record timing metrics for streaming
+            if self.first_token_time and self.instruments:
+                common_attributes = {
+                    GenAIAttributes.GEN_AI_OPERATION_NAME: GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    GenAIAttributes.GEN_AI_SYSTEM: GenAIAttributes.GenAiSystemValues.OPENAI.value,
+                    GenAIAttributes.GEN_AI_REQUEST_MODEL: self.span_attributes.get(
+                        GenAIAttributes.GEN_AI_REQUEST_MODEL
+                    ),
+                }
+
+                if self.response_model:
+                    common_attributes[GenAIAttributes.GEN_AI_RESPONSE_MODEL] = self.response_model
+
+                # Time to first token
+                time_to_first_token = self.first_token_time - self.start_time
+                self.instruments.time_to_first_token_histogram.record(
+                    time_to_first_token, attributes=common_attributes
+                )
+
+                # Time per output token (average)
+                if self.token_count > 0 and self.last_token_time:
+                    total_token_time = self.last_token_time - self.first_token_time
+                    time_per_token = total_token_time / self.token_count
+                    self.instruments.time_per_output_token_histogram.record(
+                        time_per_token, attributes=common_attributes
+                    )
+
+                # Time between tokens (average)
+                if len(self.token_times) > 1:
+                    for i in range(1, len(self.token_times)):
+                        time_between = self.token_times[i] - self.token_times[i - 1]
+                        self.instruments.time_between_token_histogram.record(
+                            time_between, attributes=common_attributes
+                        )
+
+                # Operation duration
+                if self.last_token_time:
+                    operation_duration = self.last_token_time - self.start_time
+                    self.instruments.operation_histogram.record(
+                        operation_duration, attributes=common_attributes
+                    )
 
             self.span.end()
             self._span_started = False
@@ -666,6 +812,8 @@ class StreamWrapper:
             return
 
         choices = chunk.choices
+        has_content = False
+        
         for choice in choices:
             if not choice.delta:
                 continue
@@ -683,12 +831,23 @@ class StreamWrapper:
                 self.choice_buffers[choice.index].append_text_content(
                     choice.delta.content
                 )
+                has_content = True
 
             if choice.delta.tool_calls is not None:
                 for tool_call in choice.delta.tool_calls:
                     self.choice_buffers[choice.index].append_tool_call(
                         tool_call
                     )
+                has_content = True
+
+        # Track token timing for content chunks
+        if has_content:
+            current_time = default_timer()
+            if self.first_token_time is None:
+                self.first_token_time = current_time
+            self.last_token_time = current_time
+            self.token_times.append(current_time)
+            self.token_count += 1
 
     def set_usage(self, chunk):
         if getattr(chunk, "usage", None):

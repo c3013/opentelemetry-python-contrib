@@ -284,6 +284,68 @@ def get_llm_request_attributes(
     return {k: v for k, v in attributes.items() if value_is_set(v)}
 
 
+def messages_to_json(messages, capture_content):
+    """Convert messages to JSON format for span attributes."""
+    import json
+
+    result = []
+    for message in messages:
+        msg_dict = {}
+        role = get_property_value(message, "role")
+        if role:
+            msg_dict["role"] = role
+
+        content = get_property_value(message, "content")
+        if capture_content and content:
+            msg_dict["content"] = content
+
+        # Handle tool calls for assistant messages
+        tool_calls = extract_tool_calls(message, capture_content)
+        if tool_calls:
+            msg_dict["tool_calls"] = tool_calls
+
+        # Handle tool call id for tool messages
+        if role == "tool":
+            tool_call_id = get_property_value(message, "tool_call_id")
+            if tool_call_id:
+                msg_dict["tool_call_id"] = tool_call_id
+
+        result.append(msg_dict)
+
+    return json.dumps(result)
+
+
+def tools_to_json(tools):
+    """Convert tools to JSON format for span attributes."""
+    import json
+
+    if not tools:
+        return None
+
+    result = []
+    for tool in tools:
+        tool_dict = {}
+        tool_type = get_property_value(tool, "type")
+        if tool_type:
+            tool_dict["type"] = tool_type
+
+        func = get_property_value(tool, "function")
+        if func:
+            func_dict = {}
+            name = get_property_value(func, "name")
+            if name:
+                func_dict["name"] = name
+            description = get_property_value(func, "description")
+            if description:
+                func_dict["description"] = description
+            # Don't include parameters as they can be very large
+            tool_dict["function"] = func_dict
+
+        result.append(tool_dict)
+
+    return json.dumps(result)
+
+
 def handle_span_exception(span, error):
     span.set_status(Status(StatusCode.ERROR, str(error)))
     if span.is_recording():

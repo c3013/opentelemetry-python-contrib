@@ -50,3 +50,28 @@ class Instruments:
             unit="{token}",
             explicit_bucket_boundaries_advisory=_GEN_AI_CLIENT_TOKEN_USAGE_BUCKETS,
         )
+        self.time_to_first_token_histogram: Histogram = meter.create_histogram(
+            name="gen_ai.client.time_to_first_token",
+            description="Time to first token for streaming responses",
+            unit="s",
+        )
+        self.time_per_output_token_histogram: Histogram = meter.create_histogram(
+            name="gen_ai.client.time_per_output_token",
+            description="Time per output token for streaming responses",
+            unit="s",
+        )
+        self.time_between_token_histogram: Histogram = meter.create_histogram(
+            name="gen_ai.client.time_between_token",
+            description="Time between tokens for streaming responses",
+            unit="s",
+        )
+        self.operation_histogram: Histogram = meter.create_histogram(
+            name="gen_ai.client.operation",
+            description="GenAI client operation",
+            unit="s",
+        )
+        self.cached_tokens_histogram: Histogram = meter.create_histogram(
+            name="gen_ai.usage.prompt_tokens_details.cached_tokens",
+            description="Number of cached tokens in prompt",
+            unit="{token}",
+        )
