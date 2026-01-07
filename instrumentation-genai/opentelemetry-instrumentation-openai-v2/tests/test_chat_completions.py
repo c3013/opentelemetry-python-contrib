@@ -1157,3 +1157,84 @@ def get_current_weather_tool_definition():
 
 def assert_no_invalid_type_warning(caplog):
     assert "Invalid type" not in caplog.text
+
+
+# Define attribute names for input/output messages and tools
+GEN_AI_INPUT_MESSAGES = getattr(
+    GenAIAttributes, "GEN_AI_INPUT_MESSAGES", "gen_ai.input.messages"
+)
+GEN_AI_OUTPUT_MESSAGES = getattr(
+    GenAIAttributes, "GEN_AI_OUTPUT_MESSAGES", "gen_ai.output.messages"
+)
+GEN_AI_INPUT_TOOLS = getattr(
+    GenAIAttributes, "GEN_AI_INPUT_TOOLS", "gen_ai.input.tools"
+)
+
+
+@pytest.mark.vcr()
+def test_chat_completion_with_input_output_messages_attributes(
+    span_exporter, log_exporter, openai_client, instrument_with_content
+):
+    """Test that gen_ai.input.messages and gen_ai.output.messages are captured"""
+    import json
+    
+    llm_model_value = "gpt-4o-mini"
+    messages_value = [{"role": "user", "content": "Say hello"}]
+
+    response = openai_client.chat.completions.create(
+        messages=messages_value,
+        model=llm_model_value,
+        stream=False,
+    )
+
+    spans = span_exporter.get_finished_spans()
+    assert len(spans) == 1
+    span = spans[0]
+    
+    # Check input messages attribute
+    assert GEN_AI_INPUT_MESSAGES in span.attributes
+    input_messages = json.loads(span.attributes[GEN_AI_INPUT_MESSAGES])
+    assert len(input_messages) == 1
+    assert input_messages[0]["role"] == "user"
+    assert input_messages[0]["content"] == "Say hello"
+    
+    # Check output messages attribute
+    assert GEN_AI_OUTPUT_MESSAGES in span.attributes
+    output_messages = json.loads(span.attributes[GEN_AI_OUTPUT_MESSAGES])
+    assert len(output_messages) == 1
+    assert output_messages[0]["role"] == "assistant"
+    assert "content" in output_messages[0]
+
+
+@pytest.mark.vcr()
+def test_chat_completion_with_tools_attribute(
+    span_exporter, log_exporter, openai_client, instrument_with_content
+):
+    """Test that gen_ai.input.tools is captured"""
+    import json
+    
+    llm_model_value = "gpt-4o-mini"
+    messages_value = [
+        {"role": "user", "content": "What's the weather in Boston?"}
+    ]
+    
+    tools = [get_current_weather_tool_definition()]
+
+    response = openai_client.chat.completions.create(
+        messages=messages_value,
+        model=llm_model_value,
+        tools=tools,
+        stream=False,
+    )
+
+    spans = span_exporter.get_finished_spans()
+    assert len(spans) == 1
+    span = spans[0]
+    
+    # Check tools attribute
+    assert GEN_AI_INPUT_TOOLS in span.attributes
+    tools_data = json.loads(span.attributes[GEN_AI_INPUT_TOOLS])
+    assert len(tools_data) == 1
+    assert tools_data[0]["type"] == "function"
+    assert tools_data[0]["function"]["name"] == "get_current_weather"
+    assert "description" in tools_data[0]["function"]
