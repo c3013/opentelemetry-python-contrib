@@ -99,7 +99,7 @@ def test_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 2
+    assert len(metric_data) == 3  # duration, token_usage, cached_tokens
 
     duration_metric = next(
         (
@@ -174,7 +174,7 @@ async def test_async_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 2
+    assert len(metric_data) == 3  # duration, token_usage, cached_tokens
 
     duration_metric = next(
         (
