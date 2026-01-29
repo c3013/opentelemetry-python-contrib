@@ -727,7 +727,7 @@ class StreamWrapper:
                 # Operation duration
                 if self.last_token_time:
                     operation_duration = self.last_token_time - self.start_time
-                    self.instruments.operation_histogram.record(
+                    self.instruments.operation_duration_histogram.record(
                         operation_duration, attributes=common_attributes
                     )
 
