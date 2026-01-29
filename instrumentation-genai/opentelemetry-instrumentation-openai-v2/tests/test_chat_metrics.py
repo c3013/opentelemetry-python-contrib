@@ -225,3 +225,128 @@ async def test_async_chat_completion_metrics(
     assert output_token_usage is not None
     assert output_token_usage.sum == 12
     assert_all_metric_attributes(output_token_usage)
+
+
+@pytest.mark.vcr()
+def test_chat_completion_streaming_metrics(
+    metric_reader, openai_client, instrument_with_content
+):
+    """Test that token usage metrics are recorded for streaming responses."""
+    llm_model_value = "gpt-4"
+    messages_value = [{"role": "user", "content": "Say this is a test"}]
+
+    response = openai_client.chat.completions.create(
+        messages=messages_value,
+        model=llm_model_value,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    # Consume the stream
+    for chunk in response:
+        pass
+
+    metrics = metric_reader.get_metrics_data().resource_metrics
+    assert len(metrics) == 1
+
+    metric_data = metrics[0].scope_metrics[0].metrics
+
+    # Find the token usage metric
+    token_usage_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == gen_ai_metrics.GEN_AI_CLIENT_TOKEN_USAGE
+        ),
+        None,
+    )
+    assert token_usage_metric is not None
+
+    # Check input token usage
+    input_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+        ),
+        None,
+    )
+    assert input_token_usage is not None
+    assert input_token_usage.sum > 0
+
+    # Check output token usage
+    output_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+        ),
+        None,
+    )
+    assert output_token_usage is not None
+    assert output_token_usage.sum > 0
+
+
+@pytest.mark.vcr()
+@pytest.mark.asyncio()
+async def test_async_chat_completion_streaming_metrics(
+    metric_reader, async_openai_client, instrument_with_content
+):
+    """Test that token usage metrics are recorded for async streaming responses."""
+    llm_model_value = "gpt-4"
+    messages_value = [{"role": "user", "content": "Say this is a test"}]
+
+    response = await async_openai_client.chat.completions.create(
+        messages=messages_value,
+        model=llm_model_value,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    # Consume the stream
+    async for chunk in response:
+        pass
+
+    metrics = metric_reader.get_metrics_data().resource_metrics
+    assert len(metrics) == 1
+
+    metric_data = metrics[0].scope_metrics[0].metrics
+
+    # Find the token usage metric
+    token_usage_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == gen_ai_metrics.GEN_AI_CLIENT_TOKEN_USAGE
+        ),
+        None,
+    )
+    assert token_usage_metric is not None
+
+    # Check input token usage
+    input_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+        ),
+        None,
+    )
+    assert input_token_usage is not None
+    assert input_token_usage.sum > 0
+
+    # Check output token usage
+    output_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+        ),
+        None,
+    )
+    assert output_token_usage is not None
+    assert output_token_usage.sum > 0

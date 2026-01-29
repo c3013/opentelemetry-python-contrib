@@ -556,6 +556,7 @@ class StreamWrapper:
     finish_reasons: list = []
     prompt_tokens: Optional[int] = 0
     completion_tokens: Optional[int] = 0
+    cached_tokens: Optional[int] = None
 
     def __init__(
         self,
@@ -723,6 +724,51 @@ class StreamWrapper:
                         operation_duration, attributes=common_attributes
                     )
 
+            # Record token usage metrics for streaming
+            if self.prompt_tokens is not None or self.completion_tokens is not None:
+                token_common_attributes = {
+                    GenAIAttributes.GEN_AI_OPERATION_NAME: GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    GenAIAttributes.GEN_AI_SYSTEM: GenAIAttributes.GenAiSystemValues.OPENAI.value,
+                    GenAIAttributes.GEN_AI_REQUEST_MODEL: self.span_attributes.get(
+                        GenAIAttributes.GEN_AI_REQUEST_MODEL
+                    ),
+                }
+
+                if self.response_model:
+                    token_common_attributes[GenAIAttributes.GEN_AI_RESPONSE_MODEL] = self.response_model
+
+                if self.service_tier:
+                    token_common_attributes[GenAIAttributes.GEN_AI_OPENAI_RESPONSE_SERVICE_TIER] = self.service_tier
+
+                # Record input tokens
+                if self.prompt_tokens is not None:
+                    input_attributes = {
+                        **token_common_attributes,
+                        GenAIAttributes.GEN_AI_TOKEN_TYPE: GenAIAttributes.GenAiTokenTypeValues.INPUT.value,
+                    }
+                    self.instruments.token_usage_histogram.record(
+                        self.prompt_tokens,
+                        attributes=input_attributes,
+                    )
+
+                # Record output tokens
+                if self.completion_tokens is not None:
+                    output_attributes = {
+                        **token_common_attributes,
+                        GenAIAttributes.GEN_AI_TOKEN_TYPE: GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value,
+                    }
+                    self.instruments.token_usage_histogram.record(
+                        self.completion_tokens,
+                        attributes=output_attributes,
+                    )
+
+                # Record cached tokens if available
+                if self.cached_tokens is not None:
+                    self.instruments.cached_tokens_histogram.record(
+                        self.cached_tokens,
+                        attributes=token_common_attributes,
+                    )
+
             self.span.end()
             self._span_started = False
 
@@ -853,6 +899,9 @@ class StreamWrapper:
         if getattr(chunk, "usage", None):
             self.completion_tokens = chunk.usage.completion_tokens
             self.prompt_tokens = chunk.usage.prompt_tokens
+            # Capture cached tokens if available
+            if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
+                self.cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", None)
 
     def process_chunk(self, chunk):
         self.set_response_id(chunk)
