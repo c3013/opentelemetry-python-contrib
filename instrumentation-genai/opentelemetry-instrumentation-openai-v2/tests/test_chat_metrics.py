@@ -274,6 +274,12 @@ def test_chat_completion_streaming_metrics(
     )
     assert input_token_usage is not None
     assert input_token_usage.sum > 0
+    # Validate attributes
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in input_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in input_token_usage.attributes
 
     # Check output token usage
     output_token_usage = next(
@@ -287,6 +293,12 @@ def test_chat_completion_streaming_metrics(
     )
     assert output_token_usage is not None
     assert output_token_usage.sum > 0
+    # Validate attributes
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in output_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in output_token_usage.attributes
 
 
 @pytest.mark.vcr()
@@ -337,6 +349,12 @@ async def test_async_chat_completion_streaming_metrics(
     )
     assert input_token_usage is not None
     assert input_token_usage.sum > 0
+    # Validate attributes
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in input_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in input_token_usage.attributes
 
     # Check output token usage
     output_token_usage = next(
@@ -350,3 +368,9 @@ async def test_async_chat_completion_streaming_metrics(
     )
     assert output_token_usage is not None
     assert output_token_usage.sum > 0
+    # Validate attributes
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in output_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in output_token_usage.attributes

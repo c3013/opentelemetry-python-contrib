@@ -554,9 +554,10 @@ class StreamWrapper:
     response_model: Optional[str] = None
     service_tier: Optional[str] = None
     finish_reasons: list = []
-    prompt_tokens: Optional[int] = 0
-    completion_tokens: Optional[int] = 0
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
     cached_tokens: Optional[int] = None
+    system_fingerprint: Optional[str] = None
 
     def __init__(
         self,
@@ -740,6 +741,16 @@ class StreamWrapper:
                 if self.service_tier:
                     token_common_attributes[GenAIAttributes.GEN_AI_OPENAI_RESPONSE_SERVICE_TIER] = self.service_tier
 
+                if self.system_fingerprint:
+                    token_common_attributes["gen_ai.openai.response.system_fingerprint"] = self.system_fingerprint
+
+                # Add server attributes from span_attributes
+                if ServerAttributes.SERVER_ADDRESS in self.span_attributes:
+                    token_common_attributes[ServerAttributes.SERVER_ADDRESS] = self.span_attributes[ServerAttributes.SERVER_ADDRESS]
+
+                if ServerAttributes.SERVER_PORT in self.span_attributes:
+                    token_common_attributes[ServerAttributes.SERVER_PORT] = self.span_attributes[ServerAttributes.SERVER_PORT]
+
                 # Record input tokens
                 if self.prompt_tokens is not None:
                     input_attributes = {
@@ -853,6 +864,13 @@ class StreamWrapper:
         if getattr(chunk, "service_tier", None):
             self.service_tier = chunk.service_tier
 
+    def set_system_fingerprint(self, chunk):
+        if self.system_fingerprint:
+            return
+
+        if getattr(chunk, "system_fingerprint", None):
+            self.system_fingerprint = chunk.system_fingerprint
+
     def build_streaming_response(self, chunk):
         if getattr(chunk, "choices", None) is None:
             return
@@ -907,6 +925,7 @@ class StreamWrapper:
         self.set_response_id(chunk)
         self.set_response_model(chunk)
         self.set_response_service_tier(chunk)
+        self.set_system_fingerprint(chunk)
         self.build_streaming_response(chunk)
         self.set_usage(chunk)
 
