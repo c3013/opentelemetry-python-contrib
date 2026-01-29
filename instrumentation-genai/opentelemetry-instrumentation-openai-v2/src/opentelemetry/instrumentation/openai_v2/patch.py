@@ -118,6 +118,7 @@ def chat_completions_create(
                 raise
             finally:
                 duration = max((default_timer() - start), 0)
+                # For streaming, skip token metrics as they will be recorded in StreamWrapper.cleanup()
                 _record_metrics(
                     instruments,
                     duration,
@@ -125,6 +126,7 @@ def chat_completions_create(
                     span_attributes,
                     error_type,
                     GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    record_token_metrics=not is_streaming(kwargs),
                 )
 
     return traced_method
@@ -195,6 +197,7 @@ def async_chat_completions_create(
                 raise
             finally:
                 duration = max((default_timer() - start), 0)
+                # For streaming, skip token metrics as they will be recorded in StreamWrapper.cleanup()
                 _record_metrics(
                     instruments,
                     duration,
@@ -202,6 +205,7 @@ def async_chat_completions_create(
                     span_attributes,
                     error_type,
                     GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    record_token_metrics=not is_streaming(kwargs),
                 )
 
     return traced_method
@@ -329,6 +333,7 @@ def _record_metrics(
     request_attributes: dict,
     error_type: Optional[str],
     operation_name: str,
+    record_token_metrics: bool = True,
 ):
     common_attributes = {
         GenAIAttributes.GEN_AI_OPERATION_NAME: operation_name,
@@ -374,7 +379,8 @@ def _record_metrics(
         attributes=common_attributes,
     )
 
-    if result and getattr(result, "usage", None):
+    # Skip token metrics recording for streaming requests as they will be recorded in StreamWrapper.cleanup()
+    if record_token_metrics and result and getattr(result, "usage", None):
         # Always record input tokens
         input_attributes = {
             **common_attributes,

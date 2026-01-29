@@ -300,6 +300,19 @@ def test_chat_completion_streaming_metrics(
     assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in output_token_usage.attributes
     assert ServerAttributes.SERVER_ADDRESS in output_token_usage.attributes
 
+    # Verify no duplicate metrics - each token type should appear exactly once
+    input_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+    ]
+    assert len(input_token_data_points) == 1, "Input token metrics should be recorded exactly once, not duplicated"
+    
+    output_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+    ]
+    assert len(output_token_data_points) == 1, "Output token metrics should be recorded exactly once, not duplicated"
+
 
 @pytest.mark.vcr()
 @pytest.mark.asyncio()
@@ -374,3 +387,16 @@ async def test_async_chat_completion_streaming_metrics(
     assert output_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
     assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in output_token_usage.attributes
     assert ServerAttributes.SERVER_ADDRESS in output_token_usage.attributes
+
+    # Verify no duplicate metrics - each token type should appear exactly once
+    input_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+    ]
+    assert len(input_token_data_points) == 1, "Input token metrics should be recorded exactly once, not duplicated"
+    
+    output_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+    ]
+    assert len(output_token_data_points) == 1, "Output token metrics should be recorded exactly once, not duplicated"
