@@ -99,7 +99,7 @@ def test_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 3  # duration, token_usage, cached_tokens
+    assert len(metric_data) == 4  # duration, operation, token_usage, cached_tokens
 
     duration_metric = next(
         (
@@ -115,6 +115,19 @@ def test_chat_completion_metrics(
     assert duration_point.sum > 0
     assert_all_metric_attributes(duration_point)
     assert duration_point.explicit_bounds == _DURATION_BUCKETS
+
+    operation_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == "gen_ai.client.operation"
+        ),
+        None,
+    )
+    assert operation_metric is not None
+    operation_point = operation_metric.data.data_points[0]
+    assert operation_point.value == 1
+    assert_all_metric_attributes(operation_point)
 
     token_usage_metric = next(
         (
@@ -174,7 +187,7 @@ async def test_async_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 3  # duration, token_usage, cached_tokens
+    assert len(metric_data) == 4  # duration, operation, token_usage, cached_tokens
 
     duration_metric = next(
         (
@@ -187,6 +200,19 @@ async def test_async_chat_completion_metrics(
     assert duration_metric is not None
     assert duration_metric.data.data_points[0].sum > 0
     assert_all_metric_attributes(duration_metric.data.data_points[0])
+
+    operation_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == "gen_ai.client.operation"
+        ),
+        None,
+    )
+    assert operation_metric is not None
+    operation_point = operation_metric.data.data_points[0]
+    assert operation_point.value == 1
+    assert_all_metric_attributes(operation_point)
 
     token_usage_metric = next(
         (

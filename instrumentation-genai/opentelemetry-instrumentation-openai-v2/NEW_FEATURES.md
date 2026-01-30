@@ -136,12 +136,12 @@ All new metrics are histograms that record timing and token information.
 
 ### gen_ai.client.operation
 
-**Type:** Histogram  
-**Unit:** seconds (s)  
-**Description:** Total duration of the streaming operation from start to the last token received.
+**Type:** Counter  
+**Unit:** N/A (count)  
+**Description:** Number of operations performed. Incremented for each chat completion or embedding operation.
 
 **Attributes:**
-- `gen_ai.operation.name`: "chat"
+- `gen_ai.operation.name`: "chat" or "embeddings"
 - `gen_ai.system`: "openai"
 - `gen_ai.request.model`: The requested model
 - `gen_ai.response.model`: The actual model used (if available)
@@ -221,6 +221,6 @@ for chunk in stream:
 - The `gen_ai.input.messages` and `gen_ai.output.messages` attributes are captured for both streaming and non-streaming requests.
 - The `gen_ai.input.tools` attribute is only present when tools are provided in the request.
 - Timing metrics (time_to_first_token, time_per_output_token, etc.) are only recorded for streaming responses.
-- The `gen_ai.client.operation` metric records streaming operation duration.
-- The `gen_ai.client.operation.duration` metric records operation duration for both streaming and non-streaming requests.
+- The `gen_ai.client.operation` counter is incremented for every operation (both streaming and non-streaming).
+- The `gen_ai.client.operation.duration` histogram records operation duration for both streaming and non-streaming requests.
 - The cached tokens metric is only recorded when the API returns `prompt_tokens_details.cached_tokens` in the usage information.
