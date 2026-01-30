@@ -379,8 +379,8 @@ def _record_metrics(
         attributes=common_attributes,
     )
     
-    # Increment operation counter for all operations
-    instruments.operation_counter.add(1, attributes=common_attributes)
+    # Record operation histogram for all operations
+    instruments.operation_histogram.record(duration, attributes=common_attributes)
 
     # Skip token metrics recording for streaming requests as they will be recorded in StreamWrapper.cleanup()
     if record_token_metrics and result and getattr(result, "usage", None):
@@ -727,13 +727,15 @@ class StreamWrapper:
                             time_between, attributes=common_attributes
                         )
 
-                # Operation duration and counter for streaming
+                # Operation duration and histogram for streaming
                 if self.last_token_time:
                     operation_duration = self.last_token_time - self.start_time
                     self.instruments.operation_duration_histogram.record(
                         operation_duration, attributes=common_attributes
                     )
-                    self.instruments.operation_counter.add(1, attributes=common_attributes)
+                    self.instruments.operation_histogram.record(
+                        operation_duration, attributes=common_attributes
+                    )
 
             # Record token usage metrics for streaming
             if self.prompt_tokens is not None or self.completion_tokens is not None:
