@@ -380,7 +380,8 @@ def _record_metrics(
     )
     
     # Increment operation counter for all operations
-    instruments.operation_counter.add(1, attributes=common_attributes)
+    if record_token_metrics:
+        instruments.operation_counter.record(1, attributes=common_attributes)
 
     # Skip token metrics recording for streaming requests as they will be recorded in StreamWrapper.cleanup()
     if record_token_metrics and result and getattr(result, "usage", None):
@@ -398,9 +399,12 @@ def _record_metrics(
         if hasattr(result.usage, "prompt_tokens_details") and result.usage.prompt_tokens_details:
             cached_tokens = getattr(result.usage.prompt_tokens_details, "cached_tokens", None)
             if cached_tokens is not None:
-                instruments.cached_tokens_histogram.record(
-                    cached_tokens,
-                    attributes=common_attributes,
+                cached_attributes = {
+                    **common_attributes,
+                    GenAIAttributes.GEN_AI_TOKEN_TYPE: "cached",
+                }
+                instruments.token_usage_histogram.record(
+                    cached_tokens, attributes=cached_attributes
                 )
 
         # For embeddings, don't record output tokens as all tokens are input tokens
@@ -652,7 +656,8 @@ class StreamWrapper:
                         function = {"name": tool_call.function_name}
                         if self.capture_content:
                             function["arguments"] = "".join(
-                                tool_call.arguments
+                                # 片段保护，兜底 whale 返回片段 None 的情况
+                                (arg or "") for arg in (tool_call.arguments or [])
                             )
                         tool_call_dict = {
                             "id": tool_call.tool_call_id,
@@ -733,7 +738,7 @@ class StreamWrapper:
                     self.instruments.operation_duration_histogram.record(
                         operation_duration, attributes=common_attributes
                     )
-                    self.instruments.operation_counter.add(1, attributes=common_attributes)
+                    self.instruments.operation_counter.record(1, attributes=common_attributes)
 
             # Record token usage metrics for streaming
             if self.prompt_tokens is not None or self.completion_tokens is not None:

@@ -1,4 +1,4 @@
-from opentelemetry.metrics import Counter, Histogram, Meter
+from opentelemetry.metrics import Histogram, Meter
 from opentelemetry.semconv._incubating.metrics import gen_ai_metrics
 
 _GEN_AI_CLIENT_OPERATION_DURATION_BUCKETS = [
@@ -65,9 +65,10 @@ class Instruments:
             description="Time between tokens for streaming responses",
             unit="s",
         )
-        self.operation_counter: Counter = meter.create_counter(
+        self.operation_counter: Histogram = meter.create_histogram(
             name="gen_ai.client.operation",
             description="Number of operations performed",
+            unit="l",
         )
         self.cached_tokens_histogram: Histogram = meter.create_histogram(
             name="gen_ai.usage.prompt_tokens_details.cached_tokens",
