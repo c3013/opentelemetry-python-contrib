@@ -595,6 +595,12 @@ async def test_async_chat_completion_streaming(
         response_stream_usage.prompt_tokens,
         response_stream_usage.completion_tokens,
     )
+    
+    # Verify timing attributes are present in span
+    assert "gen_ai.client.time_to_first_token" in spans[0].attributes
+    assert spans[0].attributes["gen_ai.client.time_to_first_token"] > 0
+    assert "gen_ai.client.time_per_output_token" in spans[0].attributes
+    assert spans[0].attributes["gen_ai.client.time_per_output_token"] > 0
 
     logs = log_exporter.get_finished_logs()
     assert len(logs) == 2

@@ -715,6 +715,13 @@ class StreamWrapper:
                 self.instruments.time_to_first_token_histogram.record(
                     time_to_first_token, attributes=common_attributes
                 )
+                # Add time_to_first_token as span attribute
+                if self.span.is_recording():
+                    set_span_attribute(
+                        self.span,
+                        "gen_ai.client.time_to_first_token",
+                        time_to_first_token,
+                    )
 
                 # Time per output token (average)
                 if self.token_count > 0 and self.last_token_time:
@@ -723,6 +730,13 @@ class StreamWrapper:
                     self.instruments.time_per_output_token_histogram.record(
                         time_per_token, attributes=common_attributes
                     )
+                    # Add time_per_output_token as span attribute
+                    if self.span.is_recording():
+                        set_span_attribute(
+                            self.span,
+                            "gen_ai.client.time_per_output_token",
+                            time_per_token,
+                        )
 
                 # Time between tokens (average)
                 if len(self.token_times) > 1:
