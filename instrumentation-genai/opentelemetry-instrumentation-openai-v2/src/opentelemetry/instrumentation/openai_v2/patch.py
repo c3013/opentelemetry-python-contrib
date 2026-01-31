@@ -804,6 +804,16 @@ class StreamWrapper:
 
                 # Record cached tokens if available
                 if self.cached_tokens is not None:
+                    # Record to token_usage_histogram with "cached" tag (consistent with non-streaming)
+                    cached_attributes = {
+                        **token_common_attributes,
+                        GenAIAttributes.GEN_AI_TOKEN_TYPE: "cached",
+                    }
+                    self.instruments.token_usage_histogram.record(
+                        self.cached_tokens,
+                        attributes=cached_attributes,
+                    )
+                    # Also keep recording to cached_tokens_histogram for backward compatibility
                     self.instruments.cached_tokens_histogram.record(
                         self.cached_tokens,
                         attributes=token_common_attributes,

@@ -339,6 +339,25 @@ def test_chat_completion_streaming_metrics(
     ]
     assert len(output_token_data_points) == 1, "Output token metrics should be recorded exactly once, not duplicated"
 
+    # Check cached token usage (if available)
+    cached_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes.get(GenAIAttributes.GEN_AI_TOKEN_TYPE) == "cached"
+        ),
+        None,
+    )
+    # If cached tokens are present, validate them
+    if cached_token_usage is not None:
+        assert cached_token_usage.sum >= 0
+        # Validate attributes
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+        assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in cached_token_usage.attributes
+        assert ServerAttributes.SERVER_ADDRESS in cached_token_usage.attributes
+
 
 @pytest.mark.vcr()
 @pytest.mark.asyncio()
@@ -426,3 +445,22 @@ async def test_async_chat_completion_streaming_metrics(
         if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
     ]
     assert len(output_token_data_points) == 1, "Output token metrics should be recorded exactly once, not duplicated"
+
+    # Check cached token usage (if available) - async test
+    cached_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes.get(GenAIAttributes.GEN_AI_TOKEN_TYPE) == "cached"
+        ),
+        None,
+    )
+    # If cached tokens are present, validate them
+    if cached_token_usage is not None:
+        assert cached_token_usage.sum >= 0
+        # Validate attributes
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+        assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in cached_token_usage.attributes
+        assert ServerAttributes.SERVER_ADDRESS in cached_token_usage.attributes
