@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0 -- /usr/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/opentelemetry-python-contrib/opentelemetry-python-contrib
+configfile: pytest.ini
+plugins: vcr-1.0.2, asyncio-1.3.0, anyio-4.12.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+tests/test_chat_metrics.py::test_chat_completion_metrics PASSED          [ 25%]
+tests/test_chat_metrics.py::test_async_chat_completion_metrics PASSED    [ 50%]
+tests/test_chat_metrics.py::test_chat_completion_streaming_metrics PASSED [ 75%]
+tests/test_chat_metrics.py::test_async_chat_completion_streaming_metrics PASSED [100%]
+
+============================== 4 passed in 0.40s ===============================

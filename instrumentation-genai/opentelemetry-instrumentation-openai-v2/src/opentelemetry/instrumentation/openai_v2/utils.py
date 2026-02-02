@@ -171,6 +171,13 @@ def set_span_attributes(span, attributes: dict):
 
 
 def set_span_attribute(span, name, value):
+    # For numerical values (int, float), check if it's not None and not NotGiven
+    if isinstance(value, (int, float)):
+        if value_is_set(value):
+            span.set_attribute(name, value)
+        return
+    
+    # For non-numerical values (str, bool, etc.), use the existing check
     if non_numerical_value_is_set(value) is False:
         return
 

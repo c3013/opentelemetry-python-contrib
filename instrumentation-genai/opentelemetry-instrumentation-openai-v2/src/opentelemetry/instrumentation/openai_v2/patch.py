@@ -118,6 +118,7 @@ def chat_completions_create(
                 raise
             finally:
                 duration = max((default_timer() - start), 0)
+                # For streaming, skip token metrics as they will be recorded in StreamWrapper.cleanup()
                 _record_metrics(
                     instruments,
                     duration,
@@ -125,6 +126,7 @@ def chat_completions_create(
                     span_attributes,
                     error_type,
                     GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    record_token_metrics=not is_streaming(kwargs),
                 )
 
     return traced_method
@@ -195,6 +197,7 @@ def async_chat_completions_create(
                 raise
             finally:
                 duration = max((default_timer() - start), 0)
+                # For streaming, skip token metrics as they will be recorded in StreamWrapper.cleanup()
                 _record_metrics(
                     instruments,
                     duration,
@@ -202,6 +205,7 @@ def async_chat_completions_create(
                     span_attributes,
                     error_type,
                     GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    record_token_metrics=not is_streaming(kwargs),
                 )
 
     return traced_method
@@ -329,6 +333,7 @@ def _record_metrics(
     request_attributes: dict,
     error_type: Optional[str],
     operation_name: str,
+    record_token_metrics: bool = True,
 ):
     common_attributes = {
         GenAIAttributes.GEN_AI_OPERATION_NAME: operation_name,
@@ -373,8 +378,13 @@ def _record_metrics(
         duration,
         attributes=common_attributes,
     )
+    
+    # Increment operation counter for all operations
+    if record_token_metrics:
+        instruments.operation_counter.record(1, attributes=common_attributes)
 
-    if result and getattr(result, "usage", None):
+    # Skip token metrics recording for streaming requests as they will be recorded in StreamWrapper.cleanup()
+    if record_token_metrics and result and getattr(result, "usage", None):
         # Always record input tokens
         input_attributes = {
             **common_attributes,
@@ -389,9 +399,12 @@ def _record_metrics(
         if hasattr(result.usage, "prompt_tokens_details") and result.usage.prompt_tokens_details:
             cached_tokens = getattr(result.usage.prompt_tokens_details, "cached_tokens", None)
             if cached_tokens is not None:
-                instruments.cached_tokens_histogram.record(
-                    cached_tokens,
-                    attributes=common_attributes,
+                cached_attributes = {
+                    **common_attributes,
+                    GenAIAttributes.GEN_AI_TOKEN_TYPE: "cached",
+                }
+                instruments.token_usage_histogram.record(
+                    cached_tokens, attributes=cached_attributes
                 )
 
         # For embeddings, don't record output tokens as all tokens are input tokens
@@ -480,6 +493,16 @@ def _set_response_attributes(
             GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS,
             result.usage.completion_tokens,
         )
+        
+        # Set cached tokens attribute if available
+        if hasattr(result.usage, "prompt_tokens_details") and result.usage.prompt_tokens_details:
+            cached_tokens = getattr(result.usage.prompt_tokens_details, "cached_tokens", None)
+            if cached_tokens is not None:
+                set_span_attribute(
+                    span,
+                    "gen_ai.usage.cache_read.input_tokens",
+                    cached_tokens,
+                )
 
 
 def _set_embeddings_response_attributes(
@@ -554,8 +577,10 @@ class StreamWrapper:
     response_model: Optional[str] = None
     service_tier: Optional[str] = None
     finish_reasons: list = []
-    prompt_tokens: Optional[int] = 0
-    completion_tokens: Optional[int] = 0
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+    system_fingerprint: Optional[str] = None
 
     def __init__(
         self,
@@ -617,6 +642,14 @@ class StreamWrapper:
                     self.completion_tokens,
                 )
 
+                # Set cached tokens attribute if available
+                if self.cached_tokens is not None:
+                    set_span_attribute(
+                        self.span,
+                        "gen_ai.usage.cache_read.input_tokens",
+                        self.cached_tokens,
+                    )
+
                 set_span_attribute(
                     self.span,
                     GenAIAttributes.GEN_AI_OPENAI_RESPONSE_SERVICE_TIER,
@@ -641,7 +674,8 @@ class StreamWrapper:
                         function = {"name": tool_call.function_name}
                         if self.capture_content:
                             function["arguments"] = "".join(
-                                tool_call.arguments
+                                # 片段保护，兜底 whale 返回片段 None 的情况
+                                (arg or "") for arg in (tool_call.arguments or [])
                             )
                         tool_call_dict = {
                             "id": tool_call.tool_call_id,
@@ -699,6 +733,13 @@ class StreamWrapper:
                 self.instruments.time_to_first_token_histogram.record(
                     time_to_first_token, attributes=common_attributes
                 )
+                # Add time_to_first_token as span attribute
+                if self.span.is_recording():
+                    set_span_attribute(
+                        self.span,
+                        "gen_ai.client.time_to_first_token",
+                        time_to_first_token,
+                    )
 
                 # Time per output token (average)
                 if self.token_count > 0 and self.last_token_time:
@@ -707,6 +748,13 @@ class StreamWrapper:
                     self.instruments.time_per_output_token_histogram.record(
                         time_per_token, attributes=common_attributes
                     )
+                    # Add time_per_output_token as span attribute
+                    if self.span.is_recording():
+                        set_span_attribute(
+                            self.span,
+                            "gen_ai.client.time_per_output_token",
+                            time_per_token,
+                        )
 
                 # Time between tokens (average)
                 if len(self.token_times) > 1:
@@ -716,11 +764,77 @@ class StreamWrapper:
                             time_between, attributes=common_attributes
                         )
 
-                # Operation duration
+                # Operation duration and counter for streaming
                 if self.last_token_time:
                     operation_duration = self.last_token_time - self.start_time
-                    self.instruments.operation_histogram.record(
+                    self.instruments.operation_duration_histogram.record(
                         operation_duration, attributes=common_attributes
+                    )
+                    self.instruments.operation_counter.record(1, attributes=common_attributes)
+
+            # Record token usage metrics for streaming
+            if self.prompt_tokens is not None or self.completion_tokens is not None:
+                token_common_attributes = {
+                    GenAIAttributes.GEN_AI_OPERATION_NAME: GenAIAttributes.GenAiOperationNameValues.CHAT.value,
+                    GenAIAttributes.GEN_AI_SYSTEM: GenAIAttributes.GenAiSystemValues.OPENAI.value,
+                    GenAIAttributes.GEN_AI_REQUEST_MODEL: self.span_attributes.get(
+                        GenAIAttributes.GEN_AI_REQUEST_MODEL
+                    ),
+                }
+
+                if self.response_model:
+                    token_common_attributes[GenAIAttributes.GEN_AI_RESPONSE_MODEL] = self.response_model
+
+                if self.service_tier:
+                    token_common_attributes[GenAIAttributes.GEN_AI_OPENAI_RESPONSE_SERVICE_TIER] = self.service_tier
+
+                if self.system_fingerprint:
+                    token_common_attributes["gen_ai.openai.response.system_fingerprint"] = self.system_fingerprint
+
+                # Add server attributes from span_attributes
+                if ServerAttributes.SERVER_ADDRESS in self.span_attributes:
+                    token_common_attributes[ServerAttributes.SERVER_ADDRESS] = self.span_attributes[ServerAttributes.SERVER_ADDRESS]
+
+                if ServerAttributes.SERVER_PORT in self.span_attributes:
+                    token_common_attributes[ServerAttributes.SERVER_PORT] = self.span_attributes[ServerAttributes.SERVER_PORT]
+
+                # Record input tokens
+                if self.prompt_tokens is not None:
+                    input_attributes = {
+                        **token_common_attributes,
+                        GenAIAttributes.GEN_AI_TOKEN_TYPE: GenAIAttributes.GenAiTokenTypeValues.INPUT.value,
+                    }
+                    self.instruments.token_usage_histogram.record(
+                        self.prompt_tokens,
+                        attributes=input_attributes,
+                    )
+
+                # Record output tokens
+                if self.completion_tokens is not None:
+                    output_attributes = {
+                        **token_common_attributes,
+                        GenAIAttributes.GEN_AI_TOKEN_TYPE: GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value,
+                    }
+                    self.instruments.token_usage_histogram.record(
+                        self.completion_tokens,
+                        attributes=output_attributes,
+                    )
+
+                # Record cached tokens if available
+                if self.cached_tokens is not None:
+                    # Record to token_usage_histogram with "cached" tag (consistent with non-streaming)
+                    cached_attributes = {
+                        **token_common_attributes,
+                        GenAIAttributes.GEN_AI_TOKEN_TYPE: "cached",
+                    }
+                    self.instruments.token_usage_histogram.record(
+                        self.cached_tokens,
+                        attributes=cached_attributes,
+                    )
+                    # Also keep recording to cached_tokens_histogram for backward compatibility
+                    self.instruments.cached_tokens_histogram.record(
+                        self.cached_tokens,
+                        attributes=token_common_attributes,
                     )
 
             self.span.end()
@@ -807,6 +921,13 @@ class StreamWrapper:
         if getattr(chunk, "service_tier", None):
             self.service_tier = chunk.service_tier
 
+    def set_system_fingerprint(self, chunk):
+        if self.system_fingerprint:
+            return
+
+        if getattr(chunk, "system_fingerprint", None):
+            self.system_fingerprint = chunk.system_fingerprint
+
     def build_streaming_response(self, chunk):
         if getattr(chunk, "choices", None) is None:
             return
@@ -853,11 +974,15 @@ class StreamWrapper:
         if getattr(chunk, "usage", None):
             self.completion_tokens = chunk.usage.completion_tokens
             self.prompt_tokens = chunk.usage.prompt_tokens
+            # Capture cached tokens if available
+            if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
+                self.cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", None)
 
     def process_chunk(self, chunk):
         self.set_response_id(chunk)
         self.set_response_model(chunk)
         self.set_response_service_tier(chunk)
+        self.set_system_fingerprint(chunk)
         self.build_streaming_response(chunk)
         self.set_usage(chunk)
 

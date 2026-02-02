@@ -99,7 +99,7 @@ def test_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 2
+    assert len(metric_data) == 3  # duration, operation, token_usage (includes cached tag)
 
     duration_metric = next(
         (
@@ -115,6 +115,19 @@ def test_chat_completion_metrics(
     assert duration_point.sum > 0
     assert_all_metric_attributes(duration_point)
     assert duration_point.explicit_bounds == _DURATION_BUCKETS
+
+    operation_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == "gen_ai.client.operation"
+        ),
+        None,
+    )
+    assert operation_metric is not None
+    operation_point = operation_metric.data.data_points[0]
+    assert operation_point.sum == 1
+    assert_all_metric_attributes(operation_point)
 
     token_usage_metric = next(
         (
@@ -174,7 +187,7 @@ async def test_async_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 2
+    assert len(metric_data) == 3  # duration, operation, token_usage (includes cached tag)
 
     duration_metric = next(
         (
@@ -187,6 +200,19 @@ async def test_async_chat_completion_metrics(
     assert duration_metric is not None
     assert duration_metric.data.data_points[0].sum > 0
     assert_all_metric_attributes(duration_metric.data.data_points[0])
+
+    operation_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == "gen_ai.client.operation"
+        ),
+        None,
+    )
+    assert operation_metric is not None
+    operation_point = operation_metric.data.data_points[0]
+    assert operation_point.sum == 1
+    assert_all_metric_attributes(operation_point)
 
     token_usage_metric = next(
         (
@@ -225,3 +251,216 @@ async def test_async_chat_completion_metrics(
     assert output_token_usage is not None
     assert output_token_usage.sum == 12
     assert_all_metric_attributes(output_token_usage)
+
+
+@pytest.mark.vcr()
+def test_chat_completion_streaming_metrics(
+    metric_reader, openai_client, instrument_with_content
+):
+    """Test that token usage metrics are recorded for streaming responses."""
+    llm_model_value = "gpt-4"
+    messages_value = [{"role": "user", "content": "Say this is a test"}]
+
+    response = openai_client.chat.completions.create(
+        messages=messages_value,
+        model=llm_model_value,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    # Consume the stream
+    for chunk in response:
+        pass
+
+    metrics = metric_reader.get_metrics_data().resource_metrics
+    assert len(metrics) == 1
+
+    metric_data = metrics[0].scope_metrics[0].metrics
+
+    # Find the token usage metric
+    token_usage_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == gen_ai_metrics.GEN_AI_CLIENT_TOKEN_USAGE
+        ),
+        None,
+    )
+    assert token_usage_metric is not None
+
+    # Check input token usage
+    input_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+        ),
+        None,
+    )
+    assert input_token_usage is not None
+    assert input_token_usage.sum > 0
+    # Validate attributes
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in input_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in input_token_usage.attributes
+
+    # Check output token usage
+    output_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+        ),
+        None,
+    )
+    assert output_token_usage is not None
+    assert output_token_usage.sum > 0
+    # Validate attributes
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in output_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in output_token_usage.attributes
+
+    # Verify no duplicate metrics - each token type should appear exactly once
+    input_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+    ]
+    assert len(input_token_data_points) == 1, "Input token metrics should be recorded exactly once, not duplicated"
+    
+    output_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+    ]
+    assert len(output_token_data_points) == 1, "Output token metrics should be recorded exactly once, not duplicated"
+
+    # Check cached token usage (if available)
+    cached_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes.get(GenAIAttributes.GEN_AI_TOKEN_TYPE) == "cached"
+        ),
+        None,
+    )
+    # If cached tokens are present, validate them
+    if cached_token_usage is not None:
+        assert cached_token_usage.sum >= 0
+        # Validate attributes
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+        assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in cached_token_usage.attributes
+        assert ServerAttributes.SERVER_ADDRESS in cached_token_usage.attributes
+
+
+@pytest.mark.vcr()
+@pytest.mark.asyncio()
+async def test_async_chat_completion_streaming_metrics(
+    metric_reader, async_openai_client, instrument_with_content
+):
+    """Test that token usage metrics are recorded for async streaming responses."""
+    llm_model_value = "gpt-4"
+    messages_value = [{"role": "user", "content": "Say this is a test"}]
+
+    response = await async_openai_client.chat.completions.create(
+        messages=messages_value,
+        model=llm_model_value,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    # Consume the stream
+    async for chunk in response:
+        pass
+
+    metrics = metric_reader.get_metrics_data().resource_metrics
+    assert len(metrics) == 1
+
+    metric_data = metrics[0].scope_metrics[0].metrics
+
+    # Find the token usage metric
+    token_usage_metric = next(
+        (
+            m
+            for m in metric_data
+            if m.name == gen_ai_metrics.GEN_AI_CLIENT_TOKEN_USAGE
+        ),
+        None,
+    )
+    assert token_usage_metric is not None
+
+    # Check input token usage
+    input_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+        ),
+        None,
+    )
+    assert input_token_usage is not None
+    assert input_token_usage.sum > 0
+    # Validate attributes
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert input_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in input_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in input_token_usage.attributes
+
+    # Check output token usage
+    output_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE]
+            == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+        ),
+        None,
+    )
+    assert output_token_usage is not None
+    assert output_token_usage.sum > 0
+    # Validate attributes
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+    assert output_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+    assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in output_token_usage.attributes
+    assert ServerAttributes.SERVER_ADDRESS in output_token_usage.attributes
+
+    # Verify no duplicate metrics - each token type should appear exactly once
+    input_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.INPUT.value
+    ]
+    assert len(input_token_data_points) == 1, "Input token metrics should be recorded exactly once, not duplicated"
+    
+    output_token_data_points = [
+        d for d in token_usage_metric.data.data_points
+        if d.attributes[GenAIAttributes.GEN_AI_TOKEN_TYPE] == GenAIAttributes.GenAiTokenTypeValues.COMPLETION.value
+    ]
+    assert len(output_token_data_points) == 1, "Output token metrics should be recorded exactly once, not duplicated"
+
+    # Check cached token usage (if available) - async test
+    cached_token_usage = next(
+        (
+            d
+            for d in token_usage_metric.data.data_points
+            if d.attributes.get(GenAIAttributes.GEN_AI_TOKEN_TYPE) == "cached"
+        ),
+        None,
+    )
+    # If cached tokens are present, validate them
+    if cached_token_usage is not None:
+        assert cached_token_usage.sum >= 0
+        # Validate attributes
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_OPERATION_NAME] == GenAIAttributes.GenAiOperationNameValues.CHAT.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_SYSTEM] == GenAIAttributes.GenAiSystemValues.OPENAI.value
+        assert cached_token_usage.attributes[GenAIAttributes.GEN_AI_REQUEST_MODEL] == llm_model_value
+        assert GenAIAttributes.GEN_AI_RESPONSE_MODEL in cached_token_usage.attributes
+        assert ServerAttributes.SERVER_ADDRESS in cached_token_usage.attributes

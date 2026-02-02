@@ -65,10 +65,10 @@ class Instruments:
             description="Time between tokens for streaming responses",
             unit="s",
         )
-        self.operation_histogram: Histogram = meter.create_histogram(
+        self.operation_counter: Histogram = meter.create_histogram(
             name="gen_ai.client.operation",
-            description="GenAI client operation",
-            unit="s",
+            description="Number of operations performed",
+            unit="l",
         )
         self.cached_tokens_histogram: Histogram = meter.create_histogram(
             name="gen_ai.usage.prompt_tokens_details.cached_tokens",
