@@ -632,6 +632,14 @@ class StreamWrapper:
                     self.completion_tokens,
                 )
 
+                # Set cached tokens attribute if available
+                if self.cached_tokens is not None:
+                    set_span_attribute(
+                        self.span,
+                        "gen_ai.usage.cache_read.input_tokens",
+                        self.cached_tokens,
+                    )
+
                 set_span_attribute(
                     self.span,
                     GenAIAttributes.GEN_AI_OPENAI_RESPONSE_SERVICE_TIER,

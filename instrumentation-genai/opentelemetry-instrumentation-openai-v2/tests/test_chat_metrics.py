@@ -99,7 +99,7 @@ def test_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 4  # duration, operation, token_usage, cached_tokens
+    assert len(metric_data) == 3  # duration, operation, token_usage (includes cached tag)
 
     duration_metric = next(
         (
@@ -126,7 +126,7 @@ def test_chat_completion_metrics(
     )
     assert operation_metric is not None
     operation_point = operation_metric.data.data_points[0]
-    assert operation_point.value == 1
+    assert operation_point.sum == 1
     assert_all_metric_attributes(operation_point)
 
     token_usage_metric = next(
@@ -187,7 +187,7 @@ async def test_async_chat_completion_metrics(
     assert len(metrics) == 1
 
     metric_data = metrics[0].scope_metrics[0].metrics
-    assert len(metric_data) == 4  # duration, operation, token_usage, cached_tokens
+    assert len(metric_data) == 3  # duration, operation, token_usage (includes cached tag)
 
     duration_metric = next(
         (
@@ -211,7 +211,7 @@ async def test_async_chat_completion_metrics(
     )
     assert operation_metric is not None
     operation_point = operation_metric.data.data_points[0]
-    assert operation_point.value == 1
+    assert operation_point.sum == 1
     assert_all_metric_attributes(operation_point)
 
     token_usage_metric = next(

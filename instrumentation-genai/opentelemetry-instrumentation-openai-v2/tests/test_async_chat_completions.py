@@ -602,6 +602,13 @@ async def test_async_chat_completion_streaming(
     assert "gen_ai.client.time_per_output_token" in spans[0].attributes
     assert spans[0].attributes["gen_ai.client.time_per_output_token"] > 0
 
+    # Verify cached tokens attribute is set if available
+    if hasattr(response_stream_usage, "prompt_tokens_details") and response_stream_usage.prompt_tokens_details:
+        cached_tokens = getattr(response_stream_usage.prompt_tokens_details, "cached_tokens", None)
+        if cached_tokens is not None:
+            assert "gen_ai.usage.cache_read.input_tokens" in spans[0].attributes
+            assert spans[0].attributes["gen_ai.usage.cache_read.input_tokens"] == cached_tokens
+
     logs = log_exporter.get_finished_logs()
     assert len(logs) == 2
 
