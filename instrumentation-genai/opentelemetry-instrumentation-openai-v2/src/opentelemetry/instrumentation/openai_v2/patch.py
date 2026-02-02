@@ -493,6 +493,16 @@ def _set_response_attributes(
             GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS,
             result.usage.completion_tokens,
         )
+        
+        # Set cached tokens attribute if available
+        if hasattr(result.usage, "prompt_tokens_details") and result.usage.prompt_tokens_details:
+            cached_tokens = getattr(result.usage.prompt_tokens_details, "cached_tokens", None)
+            if cached_tokens is not None:
+                set_span_attribute(
+                    span,
+                    "gen_ai.usage.cache_read.input_tokens",
+                    cached_tokens,
+                )
 
 
 def _set_embeddings_response_attributes(

@@ -70,6 +70,13 @@ def test_chat_completion_with_content(
         response.usage.completion_tokens,
     )
 
+    # Verify cached tokens attribute is set if available
+    if hasattr(response.usage, "prompt_tokens_details") and response.usage.prompt_tokens_details:
+        cached_tokens = getattr(response.usage.prompt_tokens_details, "cached_tokens", None)
+        if cached_tokens is not None:
+            assert "gen_ai.usage.cache_read.input_tokens" in spans[0].attributes
+            assert spans[0].attributes["gen_ai.usage.cache_read.input_tokens"] == cached_tokens
+
     logs = log_exporter.get_finished_logs()
     assert len(logs) == 2
 
